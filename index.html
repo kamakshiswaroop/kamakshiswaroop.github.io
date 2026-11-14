@@ -39,6 +39,8 @@ p{margin:0 0 14px;color:var(--soft)}
 @keyframes turn{from{opacity:0;transform:rotate(-25deg) scale(.7)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.seal{animation:none}}
 a:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+#mbtn{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:20;padding:10px 18px;border:1px solid var(--gold);border-radius:999px;background:var(--bg2);color:var(--gold);font:400 14px "Jost",system-ui,sans-serif;letter-spacing:.1em;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+#mbtn:focus-visible{outline:2px solid var(--ivory);outline-offset:3px}
 .portrait{margin:0 auto;max-width:320px;padding:10px;border:1px solid var(--gold);outline:1px solid var(--gold);outline-offset:6px}.portrait img{display:block;width:100%;height:auto}
 </style>
 </head>
@@ -102,6 +104,87 @@ a:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
   <p class="small">With love · Kamakshi Kruthi &amp; Swaroop</p>
 </section></div>
 
+<button id="mbtn" type="button" aria-pressed="false">&#9834; Play</button>
+<script>
+// Instrumental sitar-style music, generated in the browser (plucked-string synthesis + tanpura drone). No audio file or vocals.
+(function(){
+  var b=document.getElementById("mbtn"),AC=window.AudioContext||window.webkitAudioContext;
+  if(!AC){b.style.display="none";return}
+  var ctx=null,master,bus,playing=false,manual=false,auto=false,bufs={},tNext,dNext,di=0,idx=2,left=0,prevF=0;
+  var SA=196,SC=[1,9/8,5/4,3/2,5/3,2,9/4,5/2,3,10/3],DR=[SA/2*1.5,SA,SA,SA/2];
+  function set(p){playing=p;b.innerHTML=p?"&#9834; Pause":"&#9834; Play";b.setAttribute("aria-pressed",p)}
+  function ks(f,dur,decay,br){
+    var sr=ctx.sampleRate,N=Math.round(sr/f),len=Math.floor(sr*dur),d=new Float32Array(len),i,p=0;
+    for(i=0;i<N;i++){p+=br*((Math.random()*2-1)-p);d[i]=p}
+    d[N]=decay*d[0];
+    for(i=N+1;i<len;i++)d[i]=decay*0.5*(d[i-N]+d[i-N-1]);
+    var ab=ctx.createBuffer(1,len,sr);ab.getChannelData(0).set(d);
+    return {buf:ab,rate:f/(sr/N)};
+  }
+  function pluck(key,f,dur,decay,br,when,gain,glide){
+    var o=bufs[key]||(bufs[key]=ks(f,dur,decay,br)),s=ctx.createBufferSource(),g=ctx.createGain();
+    s.buffer=o.buf;
+    if(glide){s.playbackRate.setValueAtTime(o.rate*glide,when);s.playbackRate.linearRampToValueAtTime(o.rate,when+0.09)}
+    else s.playbackRate.value=o.rate;
+    g.gain.setValueAtTime(gain,when);g.gain.setTargetAtTime(0,when+dur-0.8,0.25);
+    s.connect(g);g.connect(bus);s.start(when);s.stop(when+dur);
+  }
+  function note(){
+    var r,d,f,dur;
+    if(left<=0){tNext+=2+Math.random()*1.5;left=7+Math.floor(Math.random()*6);idx=Math.random()<.5?0:3}
+    r=Math.random();d=r<.35?1:r<.7?-1:r<.82?2:r<.94?-2:0;
+    idx=Math.max(0,Math.min(SC.length-1,idx+d));
+    if(left===1)idx=Math.random()<.6?0:5;
+    f=SA*SC[idx];
+    pluck("m"+idx,f,3,.997,.55,tNext,.3,prevF&&Math.random()<.4?prevF/f:0);
+    prevF=f;
+    dur=[.4,.4,.8,.8,1.2,1.6][Math.floor(Math.random()*6)];
+    tNext+=dur;
+    if(Math.random()<.15){
+      for(var k=0;k<3;k++){idx=Math.min(SC.length-1,idx+1);f=SA*SC[idx];pluck("m"+idx,f,3,.997,.55,tNext,.26,0);prevF=f;tNext+=.17}
+    }
+    left--;
+  }
+  function tick(){
+    var lim=ctx.currentTime+.6,f;
+    while(dNext<lim){f=DR[di%4];pluck("d"+di%4,f,4,.9996,.35,dNext,.16,0);di++;dNext+=.85}
+    while(tNext<lim)note();
+  }
+  function build(){
+    ctx=new AC();
+    master=ctx.createGain();master.gain.value=0;
+    bus=ctx.createGain();
+    var sh=ctx.createWaveShaper(),c=new Float32Array(256),i,x,dly=ctx.createDelay(1),lp=ctx.createBiquadFilter(),fb=ctx.createGain(),wet=ctx.createGain();
+    for(i=0;i<256;i++){x=i/128-1;c[i]=Math.tanh(2.2*x)}
+    sh.curve=c;lp.type="lowpass";lp.frequency.value=2600;dly.delayTime.value=.31;fb.gain.value=.4;wet.gain.value=.35;
+    bus.connect(sh);sh.connect(master);
+    sh.connect(dly);dly.connect(lp);lp.connect(fb);fb.connect(dly);lp.connect(wet);wet.connect(master);
+    master.connect(ctx.destination);
+    tNext=ctx.currentTime+.6;dNext=ctx.currentTime+.2;
+    setInterval(tick,200);
+  }
+  function start(){
+    if(!ctx)build();
+    ctx.resume().then(function(){
+      var t=ctx.currentTime;master.gain.cancelScheduledValues(t);master.gain.setValueAtTime(master.gain.value,t);master.gain.linearRampToValueAtTime(.9,t+2.5);
+      set(true);
+    }).catch(function(){});
+  }
+  function stop(){
+    var t=ctx.currentTime;master.gain.cancelScheduledValues(t);master.gain.setValueAtTime(master.gain.value,t);master.gain.linearRampToValueAtTime(0,t+.3);
+    set(false);
+    setTimeout(function(){if(!playing)ctx.suspend()},350);
+  }
+  b.addEventListener("click",function(){manual=true;playing?stop():start()});
+  function first(e){if(manual||playing||b.contains(e.target))return;start()}
+  document.addEventListener("click",first);
+  document.addEventListener("touchend",first);
+  document.addEventListener("visibilitychange",function(){
+    if(!ctx)return;
+    if(document.hidden)ctx.suspend();else if(playing)ctx.resume();
+  });
+})();
+</script>
 <script>
 // Event start in local time: year, month (1-12), day, hour, minute
 var EVENT=new Date(2026,10,26,11,0,0);
